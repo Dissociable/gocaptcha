@@ -13,35 +13,19 @@ import (
 	"github.com/justhyped/gocaptcha/internal"
 )
 
-type AntiCaptcha struct {
+type CapSolver struct {
 	baseUrl string
 	apiKey  string
 }
 
-func NewAntiCaptcha(apiKey string) *AntiCaptcha {
-	return &AntiCaptcha{
+func NewCapSolver(apiKey string) *CapSolver {
+	return &CapSolver{
 		apiKey:  apiKey,
-		baseUrl: "https://api.anti-captcha.com",
+		baseUrl: "https://api.capsolver.com",
 	}
 }
 
-func NewCapMonsterCloud(apiKey string) *AntiCaptcha {
-	return &AntiCaptcha{
-		apiKey:  apiKey,
-		baseUrl: "https://api.capmonster.cloud",
-	}
-}
-
-// NewCustomAntiCaptcha can be used to change the baseUrl, some providers such as CapMonster, XEVil and CapSolver
-// have the exact same API as AntiCaptcha, thus allowing you to use these providers with ease.
-func NewCustomAntiCaptcha(baseUrl, apiKey string) *AntiCaptcha {
-	return &AntiCaptcha{
-		baseUrl: baseUrl,
-		apiKey:  apiKey,
-	}
-}
-
-func (a *AntiCaptcha) SolveImageCaptcha(
+func (a *CapSolver) SolveImageCaptcha(
 	ctx context.Context, settings *Settings, payload *ImageCaptchaPayload,
 ) (ICaptchaResponse, error) {
 	task := map[string]any{
@@ -49,21 +33,28 @@ func (a *AntiCaptcha) SolveImageCaptcha(
 		"body": payload.Base64String,
 		"case": payload.CaseSensitive,
 	}
+	if payload.Score >= 0.0 {
+		task["score"] = payload.Score
+	}
+	if payload.Module != "" {
+		task["module"] = payload.Module
+	}
 
 	result, err := a.solveTask(ctx, settings, task, nil, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	result.reportBad = a.report("/reportIncorrectImageCaptcha", result.taskId, settings)
+	result.reportBad = a.report("/feedbackTask", result, settings, false)
+	result.reportGood = a.report("/feedbackTask", result, settings, true)
 	return result, nil
 }
 
-func (a *AntiCaptcha) SolveRecaptchaV2(
+func (a *CapSolver) SolveRecaptchaV2(
 	ctx context.Context, settings *Settings, payload *RecaptchaV2Payload, cookies Cookies,
 ) (ICaptchaResponse, error) {
 	task := map[string]any{
-		"type":        "NoCaptchaTaskProxyless",
+		"type":        "ReCaptchaV2TaskProxyLess",
 		"websiteURL":  payload.EndpointUrl,
 		"websiteKey":  payload.EndpointKey,
 		"isInvisible": payload.IsInvisibleCaptcha,
@@ -74,16 +65,20 @@ func (a *AntiCaptcha) SolveRecaptchaV2(
 		return nil, err
 	}
 
-	result.reportBad = a.report("/reportIncorrectRecaptcha", result.taskId, settings)
-	result.reportGood = a.report("/reportCorrectRecaptcha", result.taskId, settings)
+	result.reportBad = a.report("/feedbackTask", result, settings, false)
+	result.reportGood = a.report("/feedbackTask", result, settings, true)
 	return result, nil
 }
 
-func (a *AntiCaptcha) SolveRecaptchaV2Proxy(
+func (a *CapSolver) SolveRecaptchaV2Proxy(
 	ctx context.Context, settings *Settings, payload *RecaptchaV2Payload, proxy *Proxy, cookies Cookies,
 ) (ICaptchaResponse, error) {
+	if proxy.IsEmpty() {
+		return nil, errors.New("proxy is empty")
+	}
+
 	task := map[string]any{
-		"type":        "NoCaptchaTask",
+		"type":        "ReCaptchaV2Task",
 		"websiteURL":  payload.EndpointUrl,
 		"websiteKey":  payload.EndpointKey,
 		"isInvisible": payload.IsInvisibleCaptcha,
@@ -94,12 +89,12 @@ func (a *AntiCaptcha) SolveRecaptchaV2Proxy(
 		return nil, err
 	}
 
-	result.reportBad = a.report("/reportIncorrectRecaptcha", result.taskId, settings)
-	result.reportGood = a.report("/reportCorrectRecaptcha", result.taskId, settings)
+	result.reportBad = a.report("/feedbackTask", result, settings, false)
+	result.reportGood = a.report("/feedbackTask", result, settings, true)
 	return result, nil
 }
 
-func (a *AntiCaptcha) SolveRecaptchaV3(
+func (a *CapSolver) SolveRecaptchaV3(
 	ctx context.Context, settings *Settings, payload *RecaptchaV3Payload, cookies Cookies,
 ) (ICaptchaResponse, error) {
 	task := map[string]any{
@@ -115,14 +110,14 @@ func (a *AntiCaptcha) SolveRecaptchaV3(
 		return nil, err
 	}
 
-	result.reportBad = a.report("/reportIncorrectRecaptcha", result.taskId, settings)
-	result.reportGood = a.report("/reportCorrectRecaptcha", result.taskId, settings)
+	result.reportBad = a.report("/feedbackTask", result, settings, false)
+	result.reportGood = a.report("/feedbackTask", result, settings, true)
 	return result, nil
 }
 
-func (a *AntiCaptcha) SolveHCaptcha(
-	ctx context.Context, settings *Settings, payload *HCaptchaPayload,
-) (ICaptchaResponse, error) {
+func (a *CapSolver) SolveHCaptcha(ctx context.Context, settings *Settings, payload *HCaptchaPayload) (
+	ICaptchaResponse, error,
+) {
 	task := map[string]any{
 		"type":       "HCaptchaTaskProxyless",
 		"websiteURL": payload.EndpointUrl,
@@ -137,7 +132,7 @@ func (a *AntiCaptcha) SolveHCaptcha(
 	return result, nil
 }
 
-func (a *AntiCaptcha) SolveTurnstile(
+func (a *CapSolver) SolveTurnstile(
 	ctx context.Context, settings *Settings, payload *TurnstilePayload,
 ) (ICaptchaResponse, error) {
 	task := map[string]any{
@@ -154,11 +149,9 @@ func (a *AntiCaptcha) SolveTurnstile(
 	return result, nil
 }
 
-func (a *AntiCaptcha) solveTask(
+func (a *CapSolver) solveTask(
 	ctx context.Context, settings *Settings, task map[string]any, proxy *Proxy, cookies Cookies,
-) (
-	*CaptchaResponse, error,
-) {
+) (*CaptchaResponse, error) {
 	taskId, syncAnswer, err := a.createTask(ctx, settings, task, proxy, cookies)
 	if err != nil {
 		return nil, err
@@ -190,19 +183,22 @@ func (a *AntiCaptcha) solveTask(
 	return nil, errors.New("max tries exceeded")
 }
 
-func (a *AntiCaptcha) createTask(
+func (a *CapSolver) createTask(
 	ctx context.Context, settings *Settings, task map[string]any, proxy *Proxy, cookies Cookies,
 ) (string, *string, error) {
-	type antiCapSolution struct {
-		Text string `json:"text"`
+	type capSolverSolution struct {
+		Text              string `json:"text"`
+		RecaptchaResponse string `json:"gRecaptchaResponse"`
+		UserAgent         string `json:"userAgent"`
 	}
 
-	type antiCaptchaCreateResponse struct {
-		ErrorID          int             `json:"errorId"`
-		ErrorDescription string          `json:"errorDescription"`
-		TaskID           any             `json:"taskId"`
-		Status           string          `json:"status"`
-		Solution         antiCapSolution `json:"solution"`
+	type capSolverCreateResponse struct {
+		ErrorID          int               `json:"errorId"`
+		ErrorCode        any               `json:"errorCode"`
+		ErrorDescription string            `json:"errorDescription"`
+		TaskID           any               `json:"taskId"`
+		Status           string            `json:"status"`
+		Solution         capSolverSolution `json:"solution"`
 	}
 
 	m := map[string]any{"clientKey": a.apiKey, "task": task}
@@ -215,7 +211,7 @@ func (a *AntiCaptcha) createTask(
 	}
 
 	if cookies != nil {
-		m["cookies"] = cookies.String()
+		m["cookies"] = cookies
 	}
 
 	jsonValue, err := json.Marshal(m)
@@ -240,7 +236,7 @@ func (a *AntiCaptcha) createTask(
 		return "", nil, err
 	}
 
-	var responseAsJSON antiCaptchaCreateResponse
+	var responseAsJSON capSolverCreateResponse
 	if err := json.Unmarshal(respBody, &responseAsJSON); err != nil {
 		return "", nil, err
 	}
@@ -252,7 +248,11 @@ func (a *AntiCaptcha) createTask(
 	// if the task is solved synchronously, the solution is returned immediately
 	var result *string
 	if responseAsJSON.Status == "ready" {
-		result = &responseAsJSON.Solution.Text
+		if responseAsJSON.Solution.RecaptchaResponse != "" {
+			result = &responseAsJSON.Solution.RecaptchaResponse
+		} else {
+			result = &responseAsJSON.Solution.Text
+		}
 	}
 
 	switch responseAsJSON.TaskID.(type) {
@@ -260,7 +260,7 @@ func (a *AntiCaptcha) createTask(
 		// taskId is a string with CapSolver
 		return responseAsJSON.TaskID.(string), result, nil
 	case float64:
-		// taskId is a float64 with AntiCaptcha
+		// taskId is a float64 with CapSolver
 		return strconv.FormatFloat(responseAsJSON.TaskID.(float64), 'f', 0, 64), result, nil
 	}
 
@@ -268,17 +268,19 @@ func (a *AntiCaptcha) createTask(
 	return "", nil, errors.New("unexpected taskId type, expecting string or float64")
 }
 
-func (a *AntiCaptcha) getTaskResult(ctx context.Context, settings *Settings, taskId string) (string, error) {
-	type antiCapSolution struct {
-		RecaptchaResponse string `json:"gRecaptchaResponse"`
+func (a *CapSolver) getTaskResult(ctx context.Context, settings *Settings, taskId string) (string, error) {
+	type capSolverSolution struct {
 		Text              string `json:"text"`
+		RecaptchaResponse string `json:"gRecaptchaResponse"`
+		UserAgent         string `json:"userAgent"`
 	}
 
 	type resultResponse struct {
-		Status           string          `json:"status"`
-		ErrorID          int             `json:"errorId"`
-		ErrorDescription string          `json:"errorDescription"`
-		Solution         antiCapSolution `json:"solution"`
+		Status           string            `json:"status"`
+		ErrorID          int               `json:"errorId"`
+		ErrorCode        any               `json:"errorCode"`
+		ErrorDescription string            `json:"errorDescription"`
+		Solution         capSolverSolution `json:"solution"`
 	}
 
 	resultData := map[string]string{"clientKey": a.apiKey, "taskId": taskId}
@@ -327,7 +329,9 @@ func (a *AntiCaptcha) getTaskResult(ctx context.Context, settings *Settings, tas
 	return "", nil
 }
 
-func (a *AntiCaptcha) report(path, taskId string, settings *Settings) func(ctx context.Context) error {
+func (a *CapSolver) report(
+	path string, result *CaptchaResponse, settings *Settings, correct bool,
+) func(ctx context.Context) error {
 	type response struct {
 		ErrorID          int64  `json:"errorId"`
 		ErrorCode        string `json:"errorCode"`
@@ -335,9 +339,12 @@ func (a *AntiCaptcha) report(path, taskId string, settings *Settings) func(ctx c
 	}
 
 	return func(ctx context.Context) error {
-		payload := map[string]string{
+		payload := map[string]any{
 			"clientKey": a.apiKey,
-			"taskId":    taskId,
+			"taskId":    result.taskId,
+			"result": map[string]any{
+				"invalid": !correct,
+			},
 		}
 		rawPayload, err := json.Marshal(payload)
 		if err != nil {
@@ -373,4 +380,4 @@ func (a *AntiCaptcha) report(path, taskId string, settings *Settings) func(ctx c
 	}
 }
 
-var _ IProvider = (*AntiCaptcha)(nil)
+var _ IProvider = (*CapSolver)(nil)

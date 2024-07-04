@@ -33,7 +33,9 @@ func NewCustomTwoCaptcha(baseUrl, apiKey string) *TwoCaptcha {
 	}
 }
 
-func (t *TwoCaptcha) SolveImageCaptcha(ctx context.Context, settings *Settings, payload *ImageCaptchaPayload) (ICaptchaResponse, error) {
+func (t *TwoCaptcha) SolveImageCaptcha(
+	ctx context.Context, settings *Settings, payload *ImageCaptchaPayload,
+) (ICaptchaResponse, error) {
 	task := &url.Values{}
 	task.Set("method", "base64")
 	task.Set("body", payload.Base64String)
@@ -46,7 +48,7 @@ func (t *TwoCaptcha) SolveImageCaptcha(ctx context.Context, settings *Settings, 
 		task.Set("regsense", "1")
 	}
 
-	result, err := t.solveTask(ctx, settings, task)
+	result, err := t.solveTask(ctx, settings, task, nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -56,7 +58,9 @@ func (t *TwoCaptcha) SolveImageCaptcha(ctx context.Context, settings *Settings, 
 	return result, nil
 }
 
-func (t *TwoCaptcha) SolveRecaptchaV2(ctx context.Context, settings *Settings, payload *RecaptchaV2Payload) (ICaptchaResponse, error) {
+func (t *TwoCaptcha) SolveRecaptchaV2(
+	ctx context.Context, settings *Settings, payload *RecaptchaV2Payload, cookies Cookies,
+) (ICaptchaResponse, error) {
 	task := &url.Values{}
 	task.Set("method", "userrecaptcha")
 	task.Set("googlekey", payload.EndpointKey)
@@ -66,7 +70,7 @@ func (t *TwoCaptcha) SolveRecaptchaV2(ctx context.Context, settings *Settings, p
 		task.Set("invisible", "1")
 	}
 
-	result, err := t.solveTask(ctx, settings, task)
+	result, err := t.solveTask(ctx, settings, task, nil, cookies)
 	if err != nil {
 		return nil, err
 	}
@@ -76,7 +80,31 @@ func (t *TwoCaptcha) SolveRecaptchaV2(ctx context.Context, settings *Settings, p
 	return result, nil
 }
 
-func (t *TwoCaptcha) SolveRecaptchaV3(ctx context.Context, settings *Settings, payload *RecaptchaV3Payload) (ICaptchaResponse, error) {
+func (t *TwoCaptcha) SolveRecaptchaV2Proxy(
+	ctx context.Context, settings *Settings, payload *RecaptchaV2Payload, proxy *Proxy, cookies Cookies,
+) (ICaptchaResponse, error) {
+	task := &url.Values{}
+	task.Set("method", "userrecaptcha")
+	task.Set("googlekey", payload.EndpointKey)
+	task.Set("pageurl", payload.EndpointUrl)
+
+	if payload.IsInvisibleCaptcha {
+		task.Set("invisible", "1")
+	}
+
+	result, err := t.solveTask(ctx, settings, task, proxy, cookies)
+	if err != nil {
+		return nil, err
+	}
+
+	result.reportGood = t.report("reportgood", result.taskId, settings)
+	result.reportBad = t.report("reportbad", result.taskId, settings)
+	return result, nil
+}
+
+func (t *TwoCaptcha) SolveRecaptchaV3(
+	ctx context.Context, settings *Settings, payload *RecaptchaV3Payload, cookies Cookies,
+) (ICaptchaResponse, error) {
 	task := &url.Values{}
 	task.Set("method", "userrecaptcha")
 	task.Set("version", "v3")
@@ -91,7 +119,7 @@ func (t *TwoCaptcha) SolveRecaptchaV3(ctx context.Context, settings *Settings, p
 		task.Set("enterprise", "1")
 	}
 
-	result, err := t.solveTask(ctx, settings, task)
+	result, err := t.solveTask(ctx, settings, task, nil, cookies)
 	if err != nil {
 		return nil, err
 	}
@@ -101,13 +129,15 @@ func (t *TwoCaptcha) SolveRecaptchaV3(ctx context.Context, settings *Settings, p
 	return result, nil
 }
 
-func (t *TwoCaptcha) SolveHCaptcha(ctx context.Context, settings *Settings, payload *HCaptchaPayload) (ICaptchaResponse, error) {
+func (t *TwoCaptcha) SolveHCaptcha(ctx context.Context, settings *Settings, payload *HCaptchaPayload) (
+	ICaptchaResponse, error,
+) {
 	task := &url.Values{}
 	task.Set("method", "hcaptcha")
 	task.Set("sitekey", payload.EndpointKey)
 	task.Set("pageurl", payload.EndpointUrl)
 
-	result, err := t.solveTask(ctx, settings, task)
+	result, err := t.solveTask(ctx, settings, task, nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -117,13 +147,15 @@ func (t *TwoCaptcha) SolveHCaptcha(ctx context.Context, settings *Settings, payl
 	return result, nil
 }
 
-func (t *TwoCaptcha) SolveTurnstile(ctx context.Context, settings *Settings, payload *TurnstilePayload) (ICaptchaResponse, error) {
+func (t *TwoCaptcha) SolveTurnstile(
+	ctx context.Context, settings *Settings, payload *TurnstilePayload,
+) (ICaptchaResponse, error) {
 	task := &url.Values{}
 	task.Set("method", "turnstile")
 	task.Set("sitekey", payload.EndpointKey)
 	task.Set("pageurl", payload.EndpointUrl)
 
-	result, err := t.solveTask(ctx, settings, task)
+	result, err := t.solveTask(ctx, settings, task, nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -147,7 +179,12 @@ func (t *TwoCaptcha) report(action, taskId string, settings *Settings) func(ctx 
 		body.Set("id", taskId)
 		body.Set("json", "1")
 
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, t.baseUrl+"/res.php", strings.NewReader(body.Encode()))
+		req, err := http.NewRequestWithContext(
+			ctx,
+			http.MethodGet,
+			t.baseUrl+"/res.php",
+			strings.NewReader(body.Encode()),
+		)
 		if err != nil {
 			return err
 		}
@@ -176,8 +213,10 @@ func (t *TwoCaptcha) report(action, taskId string, settings *Settings) func(ctx 
 	}
 }
 
-func (t *TwoCaptcha) solveTask(ctx context.Context, settings *Settings, task *url.Values) (*CaptchaResponse, error) {
-	taskId, err := t.createTask(ctx, settings, task)
+func (t *TwoCaptcha) solveTask(
+	ctx context.Context, settings *Settings, task *url.Values, proxy *Proxy, cookies Cookies,
+) (*CaptchaResponse, error) {
+	taskId, err := t.createTask(ctx, settings, task, proxy, cookies)
 	if err != nil {
 		return nil, err
 	}
@@ -204,17 +243,31 @@ func (t *TwoCaptcha) solveTask(ctx context.Context, settings *Settings, task *ur
 	return nil, errors.New("max tries exceeded")
 }
 
-func (t *TwoCaptcha) createTask(ctx context.Context, settings *Settings, payload *url.Values) (string, error) {
+func (t *TwoCaptcha) createTask(
+	ctx context.Context, settings *Settings, payload *url.Values, proxy *Proxy, cookies Cookies,
+) (string, error) {
 	type response struct {
 		Status    int    `json:"status"`
 		Request   string `json:"request"`
 		ErrorText string `json:"error_text"`
 	}
 
+	if proxy != nil && !proxy.IsEmpty() {
+		payload.Set("proxy", fmt.Sprintf("%s:%s@%s:%d", proxy.Username, proxy.Password, proxy.Host, proxy.Port))
+		payload.Set("proxytype", proxy.Type)
+	}
+	if cookies.Count() > 0 {
+		payload.Set("cookies", cookies.StringAlternative())
+	}
 	payload.Set("key", t.apiKey)
 	payload.Set("json", "1")
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%v/in.php?%v", t.baseUrl, payload.Encode()), nil)
+	req, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodGet,
+		fmt.Sprintf("%v/in.php?%v", t.baseUrl, payload.Encode()),
+		nil,
+	)
 	if err != nil {
 		return "", nil
 	}
@@ -255,7 +308,12 @@ func (t *TwoCaptcha) getResult(ctx context.Context, settings *Settings, taskId s
 	body.Set("json", "1")
 	body.Set("id", taskId)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%v/res.php?%v", t.baseUrl, body.Encode()), nil)
+	req, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodGet,
+		fmt.Sprintf("%v/res.php?%v", t.baseUrl, body.Encode()),
+		nil,
+	)
 	if err != nil {
 		return "", err
 	}
