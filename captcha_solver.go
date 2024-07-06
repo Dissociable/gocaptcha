@@ -30,16 +30,30 @@ func (c *CaptchaSolver) SolveImageCaptcha(ctx context.Context, payload *ImageCap
 //
 // The function returns ICaptchaResponse that has .Solution(), .ReportBad() and .ReportGood() that can be used
 // to get the answer or report the quality of the captcha to the provider.
-func (c *CaptchaSolver) SolveRecaptchaV2(ctx context.Context, payload *RecaptchaV2Payload) (ICaptchaResponse, error) {
-	return c.provider.SolveRecaptchaV2(ctx, c.settings, payload)
+func (c *CaptchaSolver) SolveRecaptchaV2(
+	ctx context.Context, payload *RecaptchaV2Payload, cookies Cookies,
+) (ICaptchaResponse, error) {
+	return c.provider.SolveRecaptchaV2(ctx, c.settings, payload, cookies)
+}
+
+// SolveRecaptchaV2Proxy uses the provider to fetch the solution of a captcha.
+//
+// The function returns ICaptchaResponse that has .Solution(), .ReportBad() and .ReportGood() that can be used
+// to get the answer or report the quality of the captcha to the provider.
+func (c *CaptchaSolver) SolveRecaptchaV2Proxy(
+	ctx context.Context, payload *RecaptchaV2Payload, proxy *Proxy, cookies Cookies,
+) (ICaptchaResponse, error) {
+	return c.provider.SolveRecaptchaV2Proxy(ctx, c.settings, payload, proxy, cookies)
 }
 
 // SolveRecaptchaV3 uses the provider to fetch the solution of a captcha.
 //
 // The function returns ICaptchaResponse that has .Solution(), .ReportBad() and .ReportGood() that can be used
 // to get the answer or report the quality of the captcha to the provider.
-func (c *CaptchaSolver) SolveRecaptchaV3(ctx context.Context, payload *RecaptchaV3Payload) (ICaptchaResponse, error) {
-	return c.provider.SolveRecaptchaV3(ctx, c.settings, payload)
+func (c *CaptchaSolver) SolveRecaptchaV3(
+	ctx context.Context, payload *RecaptchaV3Payload, cookies Cookies,
+) (ICaptchaResponse, error) {
+	return c.provider.SolveRecaptchaV3(ctx, c.settings, payload, cookies)
 }
 
 // SolveHCaptcha uses the provider to fetch the solution of a captcha.
